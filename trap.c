@@ -8,6 +8,9 @@
 #include "traps.h"
 #include "spinlock.h"
 
+int mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm);
+extern int page_allocator_type;  //0 for default and 1 for lazy
+
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
 extern uint vectors[];  // in vectors.S: array of 256 entry pointers
@@ -36,7 +39,8 @@ idtinit(void)
 void
 trap(struct trapframe *tf)
 {
-  if(tf->trapno == T_SYSCALL){
+  if(tf->trapno == T_SYSCALL)
+  {
     if(proc->killed)
       exit();
     proc->tf = tf;
@@ -48,12 +52,61 @@ trap(struct trapframe *tf)
  // CS 3320 project 2
  // You might need to change the folloiwng default page fault handling
  // for your project 2
- if(tf->trapno == T_PGFLT){                 // CS 3320 project 2
-    uint faulting_va;                       // CS 3320 project 2
-    faulting_va = rcr2();                   // CS 3320 project 2
-    cprintf("Unhandled page fault for va:0x%x!\n", faulting_va);     // CS 3320 project 2
- }
+  if(tf->trapno == T_PGFLT)
+  {
+    uint faulting_va = rcr2();  // the address that caused the page fault
 
+    // default handler if there's no process
+    if(proc == 0 || (tf->cs & 3) == 0){
+        goto PAGEFAULT_DEFAULT;
+    }
+
+    // Handles lazy page allocation
+    if (page_allocator_type == 1) 
+    {
+        void *va_page = (void*)PGROUNDDOWN(faulting_va);
+
+        // If the address is inside the process's heap
+        if((uint)va_page < proc->sz)
+        {
+            // Allocates physical memory
+            char *mem = kalloc();
+            if(mem == 0){
+                cprintf("lazy alloc: kalloc failed (pid=%d)\n", proc->pid);
+                proc->killed = 1;
+                return;
+            }
+
+            memset(mem, 0, PGSIZE);
+
+            // Maps the page
+            if(mappages(proc->pgdir, va_page, PGSIZE, V2P(mem), PTE_W | PTE_U) < 0){
+                cprintf("lazy alloc: mapping failed (pid=%d)\n", proc->pid);
+                kfree(mem);
+                proc->killed = 1;
+                return;
+            }
+
+            // Handles the page fault
+            return;
+        }
+    }
+
+PAGEFAULT_DEFAULT:
+
+    int pid_print;
+    if(proc == 0)
+        pid_print = -1;
+    else
+        pid_print = proc->pid;
+
+    int allocator_print = page_allocator_type;
+
+    cprintf("Unhandled page fault at VA 0x%x (pid=%d, lazy=%d)\n",
+            faulting_va,
+            pid_print,
+            allocator_print);
+}
 
   switch(tf->trapno){
   case T_IRQ0 + IRQ_TIMER:

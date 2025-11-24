@@ -104,30 +104,38 @@ userinit(void)
   p->state = RUNNABLE;
 }
 
-// Grow current process's memory by n bytes.
-// Return 0 on success, -1 on failure.
-int
-growproc(int n)
+int growproc(int n)
 {
-  uint sz;
-  
-  sz = proc->sz;
+  uint sz = proc->sz;
+
   if(n > 0){
-    if((sz = allocuvm(proc->pgdir, sz, sz + n)) == 0)
-    {
-      cprintf("Allocating pages failed!\n"); // CS3320: project 2
-      return -1;
-    }
-  } else if(n < 0){
-    if((sz = deallocuvm(proc->pgdir, sz, sz + n)) == 0)
-    {
-      cprintf("Deallocating pages failed!\n"); // CS3320: project 2
-      return -1;
+    if (page_allocator_type == 1) {
+      // Lazy allocation mode: checks bounds before changing to proc->sz
+      if (sz + n < sz || sz + n >= KERNBASE) {  //overflow of kernel's limit
+        cprintf("Allocating pages failed!\n");
+        return -1;
+      }
+      proc->sz = sz + n;
+      return 0;
+    } else {
+      // Original eager allocation
+      uint newsz = allocuvm(proc->pgdir, sz, sz + n);
+      if (newsz == 0)
+        return -1;
+      proc->sz = newsz;
+      switchuvm(proc);
+      return 0;
     }
   }
-  proc->sz = sz;
+
+  // n < 0: shrinking memory always frees pages normally.
+  uint newsz = deallocuvm(proc->pgdir, sz, sz + n);
+  if (newsz == 0)
+    return -1;
+
+  proc->sz = newsz;
   switchuvm(proc);
-  return 0;
+  return 0;  
 }
 
 // Create a new process copying p as the parent.

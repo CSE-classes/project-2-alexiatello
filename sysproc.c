@@ -46,15 +46,18 @@ sys_getpid(void)
 int
 sys_sbrk(void)
 {
-  int addr;
   int n;
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = proc->sz;
-  if(growproc(n) < 0)
+
+  int oldsz = proc->sz;
+
+  // growproc() performs lazy allocation now
+  if (growproc(n) < 0)
     return -1;
-  return addr;
+
+  return oldsz;
 }
 
 int
@@ -102,16 +105,10 @@ int sys_print_free_frame_cnt(void)
 extern int page_allocator_type;
 int sys_set_page_allocator(void)
 {
-    if(argint(0,&page_allocator_type) < 0){
-        return -1;
-    }
-    // please remove the following 
-    // when you start implementing your page allocator
-    if (page_allocator_type == 1)
-    {
-        cprintf("Your lazy allocator has not been implemented!\n");
-	return -1;
-    }
+    int val;
+    if (argint(0, &val) < 0)
+      return -1;
+    page_allocator_type = val;
     return 0;
 }
 
